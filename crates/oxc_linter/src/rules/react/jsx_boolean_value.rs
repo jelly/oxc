@@ -18,8 +18,16 @@ use crate::{context::LintContext, rule::Rule, utils::get_prop_value, AstNode};
 #[diagnostic(severity(warning), help("Value must be omitted for boolean attribute"))]
 struct JsxBooleanValueDiagnostic(CompactStr, #[label] Span);
 
+#[derive(Debug, Error, Diagnostic)]
+#[error("eslint-plugin-react(jsx-boolean-value): Value must be set for boolean attribute \"{0}\"")]
+#[diagnostic(severity(warning), help("Value must be set for boolean attribute"))]
+struct JsxBooleanValueAlwaysDiagnostic(CompactStr, #[label] Span);
+
 #[derive(Debug, Default, Clone)]
-pub struct JsxBooleanValue;
+pub struct JsxBooleanValue {
+    /// Require always setting
+    pub enforce_boolean_attribute: bool,
+}
 
 declare_oxc_lint!(
     /// ### What it does
@@ -36,6 +44,18 @@ declare_oxc_lint!(
 );
 
 impl Rule for JsxBooleanValue {
+    fn from_configuration(value: serde_json::Value) -> Self {
+        dbg!(&value);
+        let value = value.as_array().and_then(|arr| arr.first()).and_then(|val| val.as_object());
+
+        // always
+        Self {
+            enforce_boolean_attribute: value
+                .and_then(|val| val.get("always").and_then(serde_json::Value::as_bool))
+                .unwrap_or(true),
+        }
+    }
+
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
         let AstKind::JSXOpeningElement(jsx_opening_elem) = node.kind() else { return };
 
