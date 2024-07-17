@@ -137,5 +137,17 @@ fn test() {
         r"function foo(){return.0+.1}",
     ];
 
-    Tester::new(NoZeroFractions::NAME, pass, fail).test_and_snapshot();
+    let fix = vec![
+        (r"a = .0.toString()", r"a = (0).toString()"),
+        (r"1.00.toFixed(2)", r"(1).toFixed(2)"),
+        (r"const foo = 1.", r"const foo = 1"),
+        (r"const foo = 123.11100000000", r"const foo = 123.111"),
+        (r"const foo = 1.00", r"const foo = 1"),
+        (r"const foo = -1.e+10", r"const foo = -1e+10"),
+        (r"const foo = 1.e10", r"const foo = 1e10"),
+        (r"const foo = .0", r"const foo = 0"),
+        (r"const foo = -1.0", r"const foo = -1"),
+    ];
+
+    Tester::new(NoZeroFractions::NAME, pass, fail).expect_fix(fix).test_and_snapshot();
 }
