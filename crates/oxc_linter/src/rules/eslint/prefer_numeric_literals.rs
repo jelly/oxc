@@ -1,10 +1,11 @@
 use oxc_ast::{
-    ast::{Argument, CallExpression, Expression},
+    ast::{Argument, CallExpression, Expression, IdentifierReference, StaticMemberExpression},
     AstKind,
 };
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
+use phf::{phf_map, Map};
 
 use crate::{context::LintContext, rule::Rule, AstNode};
 
@@ -14,6 +15,12 @@ fn prefer_numeric_literals_diagnostic(span0: Span, x0: &str) -> OxcDiagnostic {
 
 #[derive(Debug, Default, Clone)]
 pub struct PreferNumericLiterals;
+
+const RADIX_MAP: Map<&'static str, &'static str> = phf_map! {
+    "2" => "binary",
+    "8" => "octal",
+    "16" => "hexadecimal",
+};
 
 declare_oxc_lint!(
     /// ### What it does
@@ -47,26 +54,20 @@ impl Rule for PreferNumericLiterals {
         if let AstKind::CallExpression(call_expr) = node.kind() {
             match &call_expr.callee.without_parenthesized() {
                 Expression::Identifier(ident) if ident.name == "parseInt" => {
-                    if ctx.symbols().get_symbol_id_from_name("parseInt").is_none() {
+                    if is_parse_int_call(ctx, ident, None) {
                         check_arguments(call_expr, ctx);
                     }
                 }
                 Expression::StaticMemberExpression(member_expr) => {
                     if let Expression::Identifier(ident) = &member_expr.object {
-                        if ident.name == "Number"
-                            && member_expr.property.name == "parseInt"
-                            && ctx.symbols().get_symbol_id_from_name("Number").is_none()
-                        {
+                        if is_parse_int_call(ctx, ident, Some(member_expr)) {
                             check_arguments(call_expr, ctx);
                         }
                     } else if let Expression::ParenthesizedExpression(paren_expr) =
                         &member_expr.object
                     {
                         if let Expression::Identifier(ident) = &paren_expr.expression {
-                            if ident.name == "Number"
-                                && member_expr.property.name == "parseInt"
-                                && ctx.symbols().get_symbol_id_from_name("Number").is_none()
-                            {
+                            if is_parse_int_call(ctx, ident, Some(member_expr)) {
                                 check_arguments(call_expr, ctx);
                             }
                         }
@@ -94,7 +95,21 @@ fn is_string_type(arg: &Argument) -> bool {
     matches!(arg, Argument::StringLiteral(_) | Argument::TemplateLiteral(_))
 }
 
-fn check_arguments(call_expr: &CallExpression, ctx: &LintContext) {
+fn is_parse_int_call(
+    ctx: &LintContext,
+    ident: &IdentifierReference,
+    static_member_expr: Option<&StaticMemberExpression>,
+) -> bool {
+    if let Some(member_expr) = static_member_expr {
+        return ident.name == "Number"
+            && member_expr.property.name == "parseInt"
+            && ctx.symbols().get_symbol_id_from_name("Number").is_none();
+    }
+
+    ctx.symbols().get_symbol_id_from_name("parseInt").is_none()
+}
+
+fn check_arguments<'a>(call_expr: &CallExpression<'a>, ctx: &LintContext<'a>) {
     if call_expr.arguments.len() != 2 {
         return;
     }
@@ -105,12 +120,12 @@ fn check_arguments(call_expr: &CallExpression, ctx: &LintContext) {
     }
 
     let radix_arg = &call_expr.arguments[1];
-    if radix_arg.to_expression().is_specific_raw_number_literal("2") {
-        ctx.diagnostic(prefer_numeric_literals_diagnostic(call_expr.span, "binary"));
-    } else if radix_arg.to_expression().is_specific_raw_number_literal("8") {
-        ctx.diagnostic(prefer_numeric_literals_diagnostic(call_expr.span, "octal"));
-    } else if radix_arg.to_expression().is_specific_raw_number_literal("16") {
-        ctx.diagnostic(prefer_numeric_literals_diagnostic(call_expr.span, "hexadecimal"));
+    let Expression::NumericLiteral(numeric_lit) = &radix_arg.to_expression() else {
+        return;
+    };
+
+    if let Some(name) = RADIX_MAP.get(numeric_lit.raw) {
+        ctx.diagnostic(prefer_numeric_literals_diagnostic(call_expr.span, name));
     }
 }
 
