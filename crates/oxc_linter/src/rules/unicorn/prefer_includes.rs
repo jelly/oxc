@@ -1,4 +1,7 @@
-use oxc_ast::{ast::Expression, AstKind};
+use oxc_ast::{
+    ast::{CallExpression, Expression},
+    AstKind,
+};
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
@@ -7,6 +10,7 @@ use oxc_syntax::operator::{BinaryOperator, UnaryOperator};
 use crate::{
     ast_util::{call_expr_method_callee_info, is_method_call},
     context::LintContext,
+    fixer::RuleFixer,
     rule::Rule,
     AstNode,
 };
@@ -42,6 +46,7 @@ declare_oxc_lint!(
     /// ```
     PreferIncludes,
     style
+    fix,
 );
 
 impl Rule for PreferIncludes {
@@ -71,9 +76,13 @@ impl Rule for PreferIncludes {
                 return;
             }
 
-            ctx.diagnostic(prefer_includes_diagnostic(
-                call_expr_method_callee_info(left_call_expr).unwrap().0,
-            ));
+            ctx.diagnostic_with_fix(
+                prefer_includes_diagnostic(call_expr_method_callee_info(left_call_expr).unwrap().0),
+                |fixer| {
+                    let content = Self::fix(fixer, left_call_expr);
+                    fixer.replace(bin_expr.span, content)
+                },
+            );
         }
 
         if matches!(bin_expr.operator, BinaryOperator::GreaterEqualThan | BinaryOperator::LessThan)
@@ -85,10 +94,28 @@ impl Rule for PreferIncludes {
             if num_lit.raw != "0" {
                 return;
             }
-            ctx.diagnostic(prefer_includes_diagnostic(
-                call_expr_method_callee_info(left_call_expr).unwrap().0,
-            ));
+            ctx.diagnostic_with_fix(
+                prefer_includes_diagnostic(call_expr_method_callee_info(left_call_expr).unwrap().0),
+                |fixer| {
+                    let content = Self::fix(fixer, left_call_expr);
+                    fixer.replace(bin_expr.span, content)
+                },
+            );
         }
+    }
+}
+
+impl PreferIncludes {
+    fn fix<'a>(fixer: RuleFixer<'_, 'a>, call_expr: &CallExpression<'a>) -> String {
+        let mut content = fixer.codegen();
+        content.print_str("includes(");
+        for argument in &call_expr.arguments {
+            if let Some(expr) = argument.as_expression() {
+                content.print_expression(expr);
+            }
+        }
+        content.print_char(b')');
+        content.into_source_text()
     }
 }
 
@@ -140,5 +167,7 @@ fn test() {
         r"foo.indexOf(bar, 1) !== -1",
     ];
 
-    Tester::new(PreferIncludes::NAME, pass, fail).test_and_snapshot();
+    let fix = vec![(r"'foobar'.indexOf('foo') !== -1", r"'foobar'.includes('foo')")];
+
+    Tester::new(PreferIncludes::NAME, pass, fail).expect_fix(fix).test_and_snapshot();
 }
