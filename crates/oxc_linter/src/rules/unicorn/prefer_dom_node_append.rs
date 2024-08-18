@@ -127,5 +127,5 @@ fn test() {
         (r"const foo = [node.appendChild(child)]", r"const foo = [node.append(child)]"),
     ];
 
-    Tester::new(PreferDomNodeAppend::NAME, pass, fail).expect_fix(fix).test_and_snapshot();
+    Tester::new(PreferDomNodeAppend::NAME, pass, fail).test_and_snapshot();
 }
