@@ -1,4 +1,7 @@
-use oxc_ast::{ast::JSXAttributeItem, AstKind};
+use oxc_ast::{
+    ast::{Expression, JSXAttributeItem, JSXAttributeValue},
+    AstKind,
+};
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
@@ -18,21 +21,19 @@ pub enum AriaPropType {
     String,
     Boolean,
     Id,
-    Tristate,
+    Tristate, // true/false or "mixed"
     Integer,
+    Number,
     IdList,
     Token,
-}
-
-enum AriaPropTypeValue {
-    String(String),
-    Bool(bool),
+    TokenList,
 }
 
 struct AriaPropTypeStruct {
     prop_type: AriaPropType,
     allowed_values: Option<Set<&'static str>>,
     allow_undefined: bool,
+    allow_boolean_values: bool,
 }
 
 // Type
@@ -41,11 +42,57 @@ struct AriaPropTypeStruct {
 // https://github.com/A11yance/aria-query/blob/main/src/ariaPropsMap.js
 // https://github.com/oxc-project/oxc/pull/1810/files
 const ARIA_PROP_TYPES: Map<&'static str, AriaPropTypeStruct> = phf_map! {
-    "aria-activedescendant" => AriaPropTypeStruct { prop_type: AriaPropType::Id, allowed_values: None, allow_undefined: false },
-    "aria-atomic" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false },
-    "aria-autocomplete" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "inline"} ), allow_undefined: false },
-    "aria-braillelabel" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false },
-    // "aria-braillelabel" => AriaPropType::String,
+    "aria-activedescendant" => AriaPropTypeStruct { prop_type: AriaPropType::Id, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-atomic" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-autocomplete" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "inline", "list", "both", "none"}), allow_undefined: false, allow_boolean_values: false },
+    "aria-braillelabel" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-brailleroledescription" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-busy" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-checked" => AriaPropTypeStruct { prop_type: AriaPropType::Tristate, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-colcount" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-colindex" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-colspan" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-controls" => AriaPropTypeStruct { prop_type: AriaPropType::IdList, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-current" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "page", "step", "location", "date", "time"}), allow_undefined: false, allow_boolean_values: true },
+    "aria-describedby" => AriaPropTypeStruct { prop_type: AriaPropType::IdList, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-description" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-details" => AriaPropTypeStruct { prop_type: AriaPropType::Id, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-disabled" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-dropeffect" => AriaPropTypeStruct { prop_type: AriaPropType::TokenList, allowed_values: Some(phf_set! { "copy", "execute", "link", "move", "none", "popup"}), allow_undefined: false, allow_boolean_values: false },
+    "aria-errormessage" => AriaPropTypeStruct { prop_type: AriaPropType::Id, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-expanded" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: true, allow_boolean_values: false },
+    "aria-flowto" => AriaPropTypeStruct { prop_type: AriaPropType::IdList, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-grabbed" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: true, allow_boolean_values: false },
+    "aria-haspopup" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "menu", "listbox", "tree", "grid", "dialog"}), allow_undefined: false, allow_boolean_values: true },
+    "aria-hidden" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: true, allow_boolean_values: false },
+    "aria-invalid" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "grammar", "spelling"}), allow_undefined: false, allow_boolean_values: true },
+    "aria-keyshortcuts" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-label" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-labelledby" => AriaPropTypeStruct { prop_type: AriaPropType::IdList, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-level" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-live" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "assertive", "off", "polite"}), allow_undefined: false, allow_boolean_values: false },
+    "aria-modal" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-multiline" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-multiselectable" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-orientation" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "vertical", "undefined", "horizontal"}), allow_undefined: false, allow_boolean_values: false },
+    "aria-owns" => AriaPropTypeStruct { prop_type: AriaPropType::IdList, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-placeholder" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-posinset" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-pressed" => AriaPropTypeStruct { prop_type: AriaPropType::Tristate, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-readonly" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-relevant" => AriaPropTypeStruct { prop_type: AriaPropType::TokenList, allowed_values: Some(phf_set! { "additions", "all", "removals", "text"}), allow_undefined: false, allow_boolean_values: false },
+    "aria-required" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-roledescription" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-rowcount" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-rowindex" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-rowspan" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-selected" => AriaPropTypeStruct { prop_type: AriaPropType::Boolean, allowed_values: None, allow_undefined: true, allow_boolean_values: false },
+    "aria-setsize" => AriaPropTypeStruct { prop_type: AriaPropType::Integer, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-sort" => AriaPropTypeStruct { prop_type: AriaPropType::Token, allowed_values: Some(phf_set! { "ascending", "descending", "none", "other"}), allow_undefined: false, allow_boolean_values: false },
+    "aria-valuemax" => AriaPropTypeStruct { prop_type: AriaPropType::Number, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-valuemin" => AriaPropTypeStruct { prop_type: AriaPropType::Number, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-valuenow" => AriaPropTypeStruct { prop_type: AriaPropType::Number, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
+    "aria-valuetext" => AriaPropTypeStruct { prop_type: AriaPropType::String, allowed_values: None, allow_undefined: false, allow_boolean_values: false },
 };
 
 #[derive(Debug, Default, Clone)]
@@ -90,10 +137,31 @@ impl Rule for AriaProptypes {
             return;
         };
 
-        if let Some(aria_prop_type) = ARIA_PROP_TYPES.get(&name) {
-            // dbg!(&ARIA_PROP_TYPES.get(&name).unwrap().allow_undefined);
-            dbg!(aria_prop_type.allow_undefined);
+        let Some(aria_prop_type) = ARIA_PROP_TYPES.get(&name) else {
+            return;
+        };
+
+        match aria_prop_type.prop_type {
+            AriaPropType::Boolean => if validate_boolean(value) {},
+            _ => {}
+        };
+
+        // dbg!(&ARIA_PROP_TYPES.get(&name).unwrap().allow_undefined);
+        dbg!(aria_prop_type.allow_undefined);
+    }
+}
+
+fn validate_boolean(value: &JSXAttributeValue) -> bool {
+    match value {
+        JSXAttributeValue::StringLiteral(s) => s.value == "true" || s.value == "false",
+        JSXAttributeValue::ExpressionContainer(container) => {
+            match container.expression.as_expression() {
+                Some(Expression::BooleanLiteral(_)) => true,
+                Some(Expression::StringLiteral(s)) => s.value == "true" || s.value == "false",
+                _ => false,
+            }
         }
+        _ => false,
     }
 }
 
